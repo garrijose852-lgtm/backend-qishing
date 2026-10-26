@@ -1,6 +1,6 @@
 const express = require('express');
 const https = require('https');
-const http = require('http'); // Usaremos http para ip-api.com
+const http = require('http');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -20,7 +20,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Función robusta para obtener ubicación por IP (especial para rangos móviles en Latam)
+// Función robusta con User-Agent para evitar que ip-api.com bloquee la consulta
 function obtenerUbicacionPorIP(ip) {
     return new Promise((resolve) => {
         if (!ip || ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.')) {
@@ -28,8 +28,15 @@ function obtenerUbicacionPorIP(ip) {
             return;
         }
 
-        // Usamos http://ip-api.com/json/ ya que soporta conexiones HTTP abiertas y es muy precisa con operadores móviles
-        const req = http.get(`http://ip-api.com/json/${ip}?fields=status,country,city,query`, (res) => {
+        const options = {
+            hostname: 'ip-api.com',
+            path: `/json/${ip}?fields=status,country,city,query`,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+            }
+        };
+
+        const req = http.get(options, (res) => {
             let data = '';
             res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
@@ -73,7 +80,6 @@ app.post('/api/registrar', async (req, res) => {
 
         const geo = await obtenerUbicacionPorIP(ip);
 
-        // Si el navegador otorgó coordenadas GPS exactas, las priorizamos; si no, usamos la de IP optimizada
         let ubicacionFinal = `${geo.ciudad}, ${geo.pais}`;
         if (lat && lon) {
             ubicacionFinal = `GPS: ${lat.toFixed(4)}, ${lon.toFixed(4)} (${geo.ciudad})`;
@@ -169,4 +175,6 @@ app.get('/admin', (req, res) => {
     `);
 });
 
-app.listen(PORT
+app.listen(PORT, () => {
+    console.log(`Servidor activo en el puerto ${PORT}`);
+});
