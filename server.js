@@ -20,7 +20,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Función robusta con User-Agent para evitar que ip-api.com bloquee la consulta
+// Función de geolocalización blindada con respaldo inteligente
 function obtenerUbicacionPorIP(ip) {
     return new Promise((resolve) => {
         if (!ip || ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.')) {
@@ -29,41 +29,42 @@ function obtenerUbicacionPorIP(ip) {
         }
 
         const options = {
-            hostname: 'ip-api.com',
-            path: `/json/${ip}?fields=status,country,city,query`,
+            hostname: 'ipapi.co',
+            path: `/${ip}/json/`,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                'User-Agent:': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
             }
         };
 
-        const req = http.get(options, (res) => {
+        const req = https.get(options, (res) => {
             let data = '';
             res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
                 try {
                     const parsed = JSON.parse(data);
-                    if (parsed && parsed.status === 'success') {
+                    if (parsed && !parsed.error && parsed.city) {
                         resolve({
                             ip: ip,
-                            ciudad: parsed.city || 'Santiago (Red Móvil)',
-                            pais: parsed.country || 'Chile'
+                            ciudad: parsed.city,
+                            pais: parsed.country_name || 'Chile'
                         });
                     } else {
-                        resolve({ ip: ip, ciudad: 'Región Metropolitana', pais: 'Chile' });
+                        // Respaldo automático amigable si ipapi.co no devuelve ciudad para esta IP móvil
+                        resolve({ ip: ip, ciudad: 'Santiago (Red Móvil)', pais: 'Chile' });
                     }
                 } catch (e) {
-                    resolve({ ip: ip, ciudad: 'Región Metropolitana', pais: 'Chile' });
+                    resolve({ ip: ip, ciudad: 'Santiago (Red Móvil)', pais: 'Chile' });
                 }
             });
         });
 
         req.on('error', () => {
-            resolve({ ip: ip, ciudad: 'Santiago', pais: 'Chile' });
+            resolve({ ip: ip, ciudad: 'Santiago (Red Móvil)', pais: 'Chile' });
         });
         
         req.setTimeout(3000, () => {
             req.destroy();
-            resolve({ ip: ip, ciudad: 'Santiago', pais: 'Chile' });
+            resolve({ ip: ip, ciudad: 'Santiago (Red Móvil)', pais: 'Chile' });
         });
     });
 }
